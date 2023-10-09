@@ -1,14 +1,52 @@
 from datetime import date
-from .sheets import load_active_properties
 
-#dates = StatusDates(date.fromisoformat("2021-11-26"), date.fromisoformat("2022-01-06"), date.fromisoformat("2021-12-05"), None, date.fromisoformat("2022-01-06"))
-#geo_data = GeolocationData(43.129518,-88.046977)
-#address = Address("10850",Direction.W,"Appleton Ave", None,"Little Menomonee Parkway", "WI", "MIL", "53225",geo_data)
-#additional_info = AdditionalInformation(None,None, None, False , False , False)
-#attributes = PhysicalAttributes(1334, "Public record", "1924" , 4, 2, 1, 1, GarageType.N, 1.5, True, 32)
-#test_property = Property(1773048, PropertyType.SINGLE_FAMILY, 189900,189900,195000, dates,address, additional_info, attributes, TermsOfSale.FHA);
-#
-#print(test_property)
+import os.path
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+# If modifying these scopes, delete the file token.json.
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+SPREADSHEET_ID = '1K6GAL3wUFMOzkn9yCat8UXbDa2K8Fo_jhm9MZoo0_Rk'
+SOLD_RANGE = "Sold!"
+ACTIVE_RANGE = "Active!"
+
+# The ID and range of a sample spreadsheet.
+
+def get_credentials():
+    """Shows basic usage of the Sheets API.
+    Prints values from a sample spreadsheet.
+    """
+    creds = None
+    # The file token.json stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first
+    # time.
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    return creds
+
+def load_active_properties():
+    credentials = get_credentials()
+    try:
+        service = build('sheets', 'v4', credentials=credentials)
+        # Call the Sheets API
+        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=ACTIVE_RANGE+"A2").execute()
+        rows = result.get('values', [])
+        print(rows)
+    except HttpError as err:
+        print(err)
 
 load_active_properties()
-
