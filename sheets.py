@@ -4,12 +4,12 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from .types import Spreadsheet, get_from_sheets_array
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-SPREADSHEET_ID = '1K6GAL3wUFMOzkn9yCat8UXbDa2K8Fo_jhm9MZoo0_Rk'
-SOLD_RANGE = "Sold!"
-ACTIVE_RANGE = "Active!"
+SPREADSHEET_ID = '164gOXHhooDOVOOZDGWjzfWZzqq4bkPgQApTRs8EOixk'
+PROGRAM_INFO = 'ProgramInfo!'
 
 # The ID and range of a sample spreadsheet.
 
@@ -31,18 +31,33 @@ def get_credentials():
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open('token.json', 'w') as token:
+        with open('token.json', 'w', encoding="utf-8") as token:
             token.write(creds.to_json())
 
     return creds
 
-def load_active_properties():
+def load_properties(spreadsheet_id : str, desired_sheet: Spreadsheet):
+
     credentials = get_credentials()
     try:
-        service = build('sheets', 'v4', credentials=credentials)
-        # Call the Sheets API
-        result = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID, range=ACTIVE_RANGE+"A2").execute()
-        rows = result.get('values', [])
-        print(rows)
+        # pylint: disable=no-member
+        service = build('sheets', 'v4', credentials=credentials).spreadsheets().values()
+
+        cell_to_pick = 'X'        
+    
+        if desired_sheet == Spreadsheet.ACTIVE:
+            cell_to_pick = 'A'
+        elif desired_sheet == Spreadsheet.SOLD:
+            cell_to_pick = 'B'
+
+        cell_info = service.get(spreadsheetId=spreadsheet_id, range=f"{PROGRAM_INFO}{cell_to_pick}2").execute()
+        number_of_properties = cell_info.get('values', [])[0][0]
+        number_of_properties = 2
+
+        raw_property_data = service.get(spreadsheetId=spreadsheet_id ,range=f"{desired_sheet.value}A2:CT{number_of_properties}").execute()
+        property_data_rows = raw_property_data.get('values', [])
+        for property in property_data_rows:
+            print(get_from_sheets_array(property))
+
     except HttpError as err:
         print(err)
