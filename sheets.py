@@ -9,7 +9,15 @@ from .types import Spreadsheet, get_from_sheets_array
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 SPREADSHEET_ID = '164gOXHhooDOVOOZDGWjzfWZzqq4bkPgQApTRs8EOixk'
+GOOGLE_API_KEY = 'AIzaSyC22y_wJabYLGr1ZX44LF22xLqaCy1ZfOU'
 PROGRAM_INFO = 'ProgramInfo!'
+
+DISTANCE_MULTPLIER = 100
+SQUARE_FOOTAGE_MULTIPLIER = 25
+BEDROOM_MULTIPLIER = 75
+BATHROOM_MULTIPLIER = 75
+MILES_P_SQFT = 1
+MAX_COMP_MILEAGE = 1
 
 # The ID and range of a sample spreadsheet.
 
@@ -37,7 +45,6 @@ def get_credentials():
     return creds
 
 def load_properties(spreadsheet_id : str, desired_sheet: Spreadsheet):
-
     credentials = get_credentials()
     try:
         # pylint: disable=no-member
@@ -52,12 +59,20 @@ def load_properties(spreadsheet_id : str, desired_sheet: Spreadsheet):
 
         cell_info = service.get(spreadsheetId=spreadsheet_id, range=f"{PROGRAM_INFO}{cell_to_pick}2").execute()
         number_of_properties = cell_info.get('values', [])[0][0]
-        number_of_properties = 2
 
         raw_property_data = service.get(spreadsheetId=spreadsheet_id ,range=f"{desired_sheet.value}A2:CT{number_of_properties}").execute()
         property_data_rows = raw_property_data.get('values', [])
-        for property in property_data_rows:
-            print(get_from_sheets_array(property))
 
+        properties = []
+
+        for i,property_excel_row in enumerate(property_data_rows):
+            print(f"loading property #{i}")
+            properties.append(get_from_sheets_array(property_excel_row))
+
+        service.close()
+
+        return properties
     except HttpError as err:
         print(err)
+
+    return []

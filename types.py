@@ -1,7 +1,13 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from datetime import date
 from typing import Union
+import googlemaps # pylint: disable=import-error
+from math import sqrt
+
+
+GOOGLE_API_KEY = 'AIzaSyC22y_wJabYLGr1ZX44LF22xLqaCy1ZfOU'
+gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
 
 # TODO Import neighborhood data based on google maps longitude and latitude string
 # The google sheets schema must be immutable and set, we cannot depend on the MLS export schema 
@@ -84,16 +90,46 @@ class GeolocationData:
     latitude : float
     longitude : float
 
+    def get_neighborhood(self):
+
+        try:
+            # pylint: disable=maybe-no-member
+            reverse_geocode_result = gmaps.reverse_geocode((self.latitude, self.longitude))
+        except ValueError:
+            return ""
+
+        neighborhood = None
+
+        for result in reverse_geocode_result:
+            for component in result['address_components']:
+                if 'neighborhood' in component['types']:
+                    neighborhood = component['long_name']
+
+        return neighborhood if neighborhood else ""
+
+    def get_distance_from_sold(self, sold):
+        try :
+            longitude = float(self.longitude)
+            latitude = float(self.latitude)
+            lat_diff = 69 * (latitude - float(sold.address.geo_data.latitude))
+            lon_diff = 50 * (longitude - float(sold.address.geo_data.longitude))
+            distance = sqrt(lat_diff**2 + lon_diff**2)
+            return distance
+        except ValueError:
+            return 0
+
+
+
 @dataclass(slots=True)
 class Address:
-    street_number : str 
-    direction : str 
+    street_number : str
+    direction : str
     street_name : str
     neighborhood : str
     state : str
     county : str
     zip_code : str
-    geo_data : Union[GeolocationData,None]
+    geo_data : GeolocationData
 
 @dataclass(slots=True)
 class PhysicalAttributes:
@@ -105,31 +141,64 @@ class PhysicalAttributes:
     full_bathrooms : int
     garage_space : float
 
+    def get_bathroom_float(self):
+        try:
+            return int(self.full_bathrooms) + int(self.half_bathrooms)/2
+        except ValueError:
+            return 0
+
 @dataclass(slots=True)
 class AdditionalInformation:
-    private_remarks : Union[str, None]
-    public_remarks : Union[str , None]
-    showing_info  : Union[str, None]
+    private_remarks : str
+    public_remarks : str
+    showing_info  : str
+
+
+def default_agency_info():
+    return AgencyInfo("", "", "")
+
+def default_status_dates():
+    return StatusDates(date(1900, 1, 1), None, None, None, None)
+
+def default_geolocation_data():
+    return GeolocationData(0.0, 0.0)
+
+def default_address():
+    return Address("", "", "", "", "", "", "", default_geolocation_data())
+
+def default_additional_information():
+    return AdditionalInformation("", "", "")
+
+def default_physical_attributes():
+    return PhysicalAttributes(0, "1900", 0, 0, 0, 0, 0.0)
+
 
 @dataclass(slots=True)
 class Property:
-    list_number : int
-    type : PropertyType
-    agency_info : AgencyInfo
-    original_list_price : int
-    list_price : int
-    sold_price : Union[int,None]
-    status_dates : StatusDates
-    address : Address
-    additional_info : AdditionalInformation
-    attribs : PhysicalAttributes
+    list_number : str = ""
+    agency_info : AgencyInfo = field(default_factory=default_agency_info)
+    original_list_price : int = 0
+    list_price : int = 0
+    sold_price : int = 0
+    status_dates : StatusDates = field(default_factory=default_status_dates)
+    address : Address = field(default_factory=default_address)
+    additional_info : AdditionalInformation = field(default_factory=default_additional_information)
+    attribs : PhysicalAttributes = field(default_factory=default_physical_attributes)
 
-class PropertyFieldIndices:
+    def get_price_psft(self):
+        try:
+            return int(self.sold_price)/ int(self.attribs.square_footage)
+        except ValueError:
+            return -1
+        except ZeroDivisionError:
+            return -1
+
+
+class PropertyFieldIndices():
     LIST_NUMBER = 0
     AGENCY_NAME = 1
     AGENCY_PHONE = 2
     LISTING_AGENT = 3
-    PROPERTY_TYPE = 5
     LISTING_DATE = 13
     SOLD_DATE = 14
     PENDING_DATE = 15
@@ -159,6 +228,7 @@ class PropertyFieldIndices:
     PRIVATE_REMARKS= 60
     PUBLIC_REMARKS = 59
     SHOWING_INFO = 62
+    NEIGHBORHOOD = 33
 
 
 def get_from_sheets_array(sheets_row):
@@ -172,26 +242,64 @@ def get_from_sheets_array(sheets_row):
     sheets_row[PropertyFieldIndices.FALLTHROUGH],
     sheets_row[PropertyFieldIndices.STATUS_CHANGE_DATE],)
 
-    geo_data = GeolocationData(sheets_row[PropertyFieldIndices.GEO_LAT],
-    sheets_row[PropertyFieldIndices.GEO_LONG])
+    try:
+        geo_data = GeolocationData(float(sheets_row[PropertyFieldIndices.GEO_LAT]),
+        float(sheets_row[PropertyFieldIndices.GEO_LONG]))
+    except ValueError:
+        geo_data = GeolocationData(0.0,0.0)
 
     address_info = Address(sheets_row[PropertyFieldIndices.STREET_NUM],
     sheets_row[PropertyFieldIndices.STREET_DIR],
-    sheets_row[PropertyFieldIndices.STREET_NAME], 
-    "TODO ADD neighborhood=",
+    sheets_row[PropertyFieldIndices.STREET_NAME],
+    sheets_row[PropertyFieldIndices.NEIGHBORHOOD],#geo_data.get_neighborhood(),
     sheets_row[PropertyFieldIndices.STATE],
     sheets_row[PropertyFieldIndices.COUNTY],
     sheets_row[PropertyFieldIndices.ZIP_CODE],
     geo_data
     )
 
-    attribs = PhysicalAttributes(sheets_row[PropertyFieldIndices.TOTAL_SQ_FT],
+
+    try:
+        total_sq_ft = int(sheets_row[PropertyFieldIndices.TOTAL_SQ_FT])
+    except ValueError:
+        total_sq_ft = 0
+
+    try:
+        n_of_rooms = int(sheets_row[PropertyFieldIndices.N_OF_ROOMS])
+    except ValueError:
+        n_of_rooms = 0
+
+    try:
+        n_of_bedrooms = int(sheets_row[PropertyFieldIndices.N_OF_BEDROOMS])
+    except ValueError:
+        n_of_bedrooms = 0
+
+    try:
+        n_of_half_baths = int(sheets_row[PropertyFieldIndices.N_OF_HALF_BATHS])
+    except ValueError:
+        n_of_half_baths = 0
+
+    try:
+        n_of_full_baths = int(sheets_row[PropertyFieldIndices.N_FULL_BATHS])
+    except ValueError:
+        n_of_full_baths = 0
+
+    try:
+        garage_spaces = float(sheets_row[PropertyFieldIndices.GARAGE_SPACES])
+    except ValueError:
+        garage_spaces = 0
+
+
+    attribs = PhysicalAttributes(
+    total_sq_ft,
     sheets_row[PropertyFieldIndices.BUILD_YEAR],
-    sheets_row[PropertyFieldIndices.N_OF_ROOMS],
-    sheets_row[PropertyFieldIndices.N_OF_BEDROOMS],
-    sheets_row[PropertyFieldIndices.N_OF_HALF_BATHS],
-    sheets_row[PropertyFieldIndices.N_FULL_BATHS],
-    sheets_row[PropertyFieldIndices.GARAGE_SPACES])
+    n_of_rooms,
+    n_of_bedrooms,
+    n_of_half_baths,
+    n_of_full_baths,
+    garage_spaces
+    )
+    
 
     additional_info = AdditionalInformation(
             sheets_row[PropertyFieldIndices.PRIVATE_REMARKS],
@@ -201,7 +309,6 @@ def get_from_sheets_array(sheets_row):
 
     return Property(
     sheets_row[PropertyFieldIndices.LIST_NUMBER],
-    sheets_row[PropertyFieldIndices.PROPERTY_TYPE],
     agency_info,
     sheets_row[PropertyFieldIndices.ORIGINAL_LIST_PRICE],
     sheets_row[PropertyFieldIndices.LIST_PRICE],
@@ -211,3 +318,69 @@ def get_from_sheets_array(sheets_row):
     additional_info,
     attribs)
 
+
+@dataclass(slots=True)
+class PropertyResult:
+    score : float
+    property: Property
+
+    def __lt__(self, other):
+        return self.score < other.score
+
+@dataclass(slots=True)
+class BestComps:
+    active : Property
+    best_comps : list[PropertyResult]
+    third_quartile_price : float
+
+    def get_arv_avg(self):
+        total = 0
+        prop_number = 0
+        for comp in self.best_comps:
+            try:
+                total += int(comp.property.sold_price)
+                prop_number += 1
+            except ValueError:
+                print(f"Property {comp.property.list_number} has no sold price")
+
+        return total / prop_number
+
+
+    def get_result_array(self):
+
+        comp_arv = self.get_arv_avg()
+        try:
+            sf_arv = int(self.active.attribs.square_footage) * self.third_quartile_price
+        except ValueError:
+            sf_arv = 0
+
+        arv_avg = (0.75 * comp_arv) + (0.25 * sf_arv)
+
+        try:
+            percentage_avg_arv = int(self.active.list_price)/arv_avg
+        except ValueError:
+            percentage_avg_arv = 0
+        except ZeroDivisionError:
+            percentage_avg_arv = 0
+
+
+        result_row = [
+        self.active.list_number,
+        self.active.address.geo_data.latitude,
+        self.active.address.geo_data.longitude,
+        self.active.list_price,
+        arv_avg,
+        comp_arv,
+        sf_arv,
+        percentage_avg_arv,
+        self.active.address.neighborhood,
+        self.active.attribs.bedrooms,
+        self.active.attribs.get_bathroom_float(),
+        self.active.attribs.square_footage,
+        self.third_quartile_price,
+        ]
+
+        for comp in self.best_comps:
+            result_row.extend([comp.property.sold_price,comp.property.list_number])
+
+        return result_row
