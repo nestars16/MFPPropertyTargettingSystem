@@ -1,25 +1,87 @@
-from .sheets import load_properties, SPREADSHEET_ID
-from .types import Spreadsheet, GeolocationData
-from .targetting import get_best_sold_comps, DISTANCE_MULTPLIER, MAX_COMP_MILEAGE,get_neighborhood_3rd_quartile_price_sft
 from math import sqrt
+from time import sleep
+from flask import Flask
+from .sheets import load_properties ,write_result_array, get_all_solds, clean_solds,append_solds_to_master
+from .types import Spreadsheet 
+from .targetting import get_best_sold_comps
 
 # TODO make the google sheets look up the neighborhood data instead of making the google api
 # TODO maybe optiziming look ups by relying on already exisiting MI data
 
-print("Loading solds...")
-solds = load_properties(SPREADSHEET_ID, Spreadsheet.SOLD)
-print("Loading actives...")
-actives = load_properties(SPREADSHEET_ID, Spreadsheet.ACTIVE)
+app = Flask(__name__)
 
+@app.route("/old_run", methods=["GET"])
+def run_active_scores():
+    print("Loading solds...")
+    solds = load_properties(Spreadsheet.SOLD)
+    print("Loading actives...")
+    actives = load_properties(Spreadsheet.ACTIVE)
 
+    results = []
+    
+    for i,active in enumerate(actives):
+        print(f"Calculating best comps for active #{i}")
+        results.append(get_best_sold_comps(active,solds))
+    
+    #print(result.get_result_array())
 
-result =  get_best_sold_comps(actives[0],solds)
+    write_result_array(results)
 
-print("Getting best comps for first active")
-for i, comp in enumerate(result.best_comps):
-    print(f"#{i+1} - {comp.property.list_number}")
+    return 'Ran sucessfully',200
 
-print(result.get_result_array())
+@app.route("/run", methods=["GET"])
+def run():
+    print("Loading solds...")
+    solds = get_all_solds()
+    print("Solds loaded")
+    append_solds_to_master()
+    print("Solds appended to master")
+    clean_solds()
+    print("Solds sheet cleaned")
+    print("Loading actives...")
+    actives = load_properties(Spreadsheet.ACTIVE)
 
+    results = []
+    
+    for i,active in enumerate(actives):
+        print(f"Calculating best comps for active #{i}")
+        results.append(get_best_sold_comps(active,solds))
 
+    write_result_array(results)
 
+    return 'Ran sucessfully',200
+
+@app.route("/minimal_run", methods=["GET"])
+def min_run():
+    solds = get_all_solds()
+    actives = load_properties(Spreadsheet.ACTIVE)
+
+    results = []
+    
+    for i,active in enumerate(actives):
+        print(f"Calculating best comps for active #{i}")
+        results.append(get_best_sold_comps(active,solds))
+
+    write_result_array(results)
+
+    return 'Ran sucessfully',200
+
+@app.route("/append_solds", methods=["GET"])
+def append_solds():
+    append_solds_to_master()
+    return "Appended solds", 200
+
+# Clean solds and filter
+# Make dashboard pretty
+# Host service
+
+"""
+1. Long Term is to create another 'scoring' system on top of the additional
+scoring system to score comps, to granularly separate things like seller motivation
+on top of projecting value
+
+2. List price to ARV, then time on market
+"""
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)

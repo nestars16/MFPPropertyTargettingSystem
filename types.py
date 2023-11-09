@@ -2,19 +2,43 @@ from dataclasses import dataclass, field
 from enum import Enum
 from datetime import date
 from typing import Union
-import googlemaps # pylint: disable=import-error
 from math import sqrt
+from datetime import datetime
+
+DATE_FORMATS = [ "%Y-%m-%d","%m/%d/%Y" ]
+DEFAULT_DATE_FORMAT = "%m/%d/%Y" 
 
 
-GOOGLE_API_KEY = 'AIzaSyC22y_wJabYLGr1ZX44LF22xLqaCy1ZfOU'
-gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
+ACTIVE_SHEET_ID = '1l_vdszegyTa7FCPqL8WcZ-iV_FzQWFFyE6uggZYV22A'
+SOLD_SHEET_ID = '1S8HXWayHcro3O_xMCjaFuMiVWjAgdjyhObqCVtKXJaQ'
+DASHBOARD_SHEET_ID = '1GxSKElRyVSRlh8rQzthN9KPPNhQM3IGDCXWsya4X6Fw'
+MASTER_SOLDS_SHEET_ID = '1c-TvmHyjhzTCDT4nj78avuk1pDPbgmyM86ZfpRZlH9U'
+# GOOGLE_API_KEY = 'AIzaSyC22y_wJabYLGr1ZX44LF22xLqaCy1ZfOU'
+# gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
+
+
+
+
 
 # TODO Import neighborhood data based on google maps longitude and latitude string
 # The google sheets schema must be immutable and set, we cannot depend on the MLS export schema 
 
+@dataclass(slots=True)
+class SheetInfo:
+    Id : str
+    name : str
+    info_sheet : str
+    range : str
+
 class Spreadsheet(Enum):
-    SOLD = 'Sold!'
-    ACTIVE = 'Active!'
+    SOLD = SheetInfo(SOLD_SHEET_ID, "'Import Solds'!","Formatted!", "A2:AN")
+    ACTIVE = SheetInfo(ACTIVE_SHEET_ID, "'Import Actives'!","Formatted!","A2:AH" )
+    OUTPUT = SheetInfo(DASHBOARD_SHEET_ID, "Result!","N/A", "N/A")
+    MASTER_SOLDS = SheetInfo(MASTER_SOLDS_SHEET_ID, "'Master Solds'!", "'Master Solds'!", "A2:AN")
+
+class PropertyCategory(Enum):
+    ACTIVE = 1
+    SOLD = 2
 
 class PropertyType(Enum):
     SINGLE_FAMILY = 1
@@ -73,7 +97,6 @@ class TermsOfSale(Enum):
 
 @dataclass(slots=True)
 class AgencyInfo:
-    agency_name : str
     agency_phone : str
     listing_agent : str
 
@@ -90,22 +113,22 @@ class GeolocationData:
     latitude : float
     longitude : float
 
-    def get_neighborhood(self):
+    # def get_neighborhood(self):
 
-        try:
-            # pylint: disable=maybe-no-member
-            reverse_geocode_result = gmaps.reverse_geocode((self.latitude, self.longitude))
-        except ValueError:
-            return ""
+    #     try:
+    #         # pylint: disable=maybe-no-member
+    #         reverse_geocode_result = gmaps.reverse_geocode((self.latitude, self.longitude))
+    #     except ValueError:
+    #         return ""
 
-        neighborhood = None
+    #     neighborhood = None
 
-        for result in reverse_geocode_result:
-            for component in result['address_components']:
-                if 'neighborhood' in component['types']:
-                    neighborhood = component['long_name']
+    #     for result in reverse_geocode_result:
+    #         for component in result['address_components']:
+    #             if 'neighborhood' in component['types']:
+    #                 neighborhood = component['long_name']
 
-        return neighborhood if neighborhood else ""
+    #     return neighborhood if neighborhood else ""
 
     def get_distance_from_sold(self, sold):
         try :
@@ -155,7 +178,7 @@ class AdditionalInformation:
 
 
 def default_agency_info():
-    return AgencyInfo("", "", "")
+    return AgencyInfo("", "")
 
 def default_status_dates():
     return StatusDates(date(1900, 1, 1), None, None, None, None)
@@ -230,9 +253,311 @@ class PropertyFieldIndices():
     SHOWING_INFO = 62
     NEIGHBORHOOD = 33
 
+class FormattedSoldFieldIndices():
+    LIST_NUMBER = 0
+    AGENCY_PHONE = 1
+    LISTING_AGENT = 2
+    LISTING_DATE = 3
+    SOLD_DATE = 4
+    PENDING_DATE = 5
+    STATUS_CHANGE_DATE = 6
+    ORIGINAL_LIST_PRICE = 7
+    LIST_PRICE = 8
+    SOLD_PRICE = 9
+    GARAGE_SPACES = 10
+    TERMS_OF_SALE = 11
+    STREET_NUM = 12
+    STREET_DIR = 13
+    STREET_NAME = 14
+    MUNICIPALITY = 16
+    STATE = 17
+    COUNTY = 18
+    ZIP_CODE = 19
+    GEO_LAT = 20
+    GEO_LONG = 21
+    TOTAL_SQ_FT = 22
+    BUILD_YEAR = 23
+    N_OF_ROOMS = 24
+    N_OF_BEDROOMS = 25
+    N_OF_FULL_BATHS = 27
+    N_OF_HALF_BATHS = 28
+    NEIGHBORHOOD = 39
+
+class FormattedActiveFieldIndices():
+    LIST_NUMBER = 0
+    LISTING_AGENT = 1
+    AGENCY_PHONE = 2
+    LISTING_DATE = 3
+    STATUS_CHANGE_DATE = 4
+    ORIGINAL_LIST_PRICE = 5
+    LIST_PRICE = 6
+    STREET_NUM = 7
+    STREET_DIR = 8
+    STREET_NAME = 9
+    MUNICIPALITY = 11
+    STATE = 12
+    COUNTY = 13
+    ZIP_CODE = 14
+    GEO_LAT = 15
+    GEO_LONG = 16
+    TOTAL_SQ_FT = 17
+    BUILD_YEAR = 18
+    N_OF_ROOMS = 19
+    N_OF_BEDROOMS = 20
+    N_OF_FULL_BATHS = 22
+    N_OF_HALF_BATHS = 23
+    NEIGHBORHOOD = 33
+
+def get_date(date_str):
+    for date_format in DATE_FORMATS:
+        try:
+            return datetime.strptime(date_str,date_format)
+        except ValueError:
+            continue
+
+    return datetime.strptime("1/1/1970", DEFAULT_DATE_FORMAT)
+
+
+def get_float(float_str):
+    try:
+        return float(float_str)
+    except ValueError:
+        return 0.0
+
+def get_int(int_str):
+    try:
+        return int(int_str)
+    except ValueError:
+        return 0
+
+
+def get_sold_from_sheets(sheets_row):
+
+    agency_info = AgencyInfo(
+            sheets_row[FormattedSoldFieldIndices.AGENCY_PHONE],
+            sheets_row[FormattedSoldFieldIndices.LISTING_AGENT]
+    )
+
+    listing_date = get_date(sheets_row[FormattedSoldFieldIndices.LISTING_DATE])
+    sold_date = get_date(sheets_row[FormattedSoldFieldIndices.SOLD_DATE])
+    pending_date = get_date(sheets_row[FormattedSoldFieldIndices.PENDING_DATE])
+
+
+    status_change_date = get_date(sheets_row[FormattedSoldFieldIndices.STATUS_CHANGE_DATE])
+
+    status_dates = StatusDates(listing_date,sold_date,pending_date,None,status_change_date)
+    
+    geo_data = GeolocationData(
+            get_float(sheets_row[FormattedSoldFieldIndices.GEO_LAT]), 
+            get_float(sheets_row[FormattedSoldFieldIndices.GEO_LONG])
+    )
+
+
+    address_info = Address(sheets_row[FormattedSoldFieldIndices.STREET_NUM],
+    sheets_row[FormattedSoldFieldIndices.STREET_DIR],
+    sheets_row[FormattedSoldFieldIndices.STREET_NAME],
+    sheets_row[FormattedSoldFieldIndices.NEIGHBORHOOD],
+    sheets_row[FormattedSoldFieldIndices.STATE],
+    sheets_row[FormattedSoldFieldIndices.COUNTY],
+    sheets_row[FormattedSoldFieldIndices.ZIP_CODE],
+    geo_data
+    )
+
+
+    total_sq_ft = get_int(sheets_row[FormattedSoldFieldIndices.TOTAL_SQ_FT])
+    n_of_rooms = get_int(sheets_row[FormattedSoldFieldIndices.N_OF_ROOMS])
+    n_of_bedrooms = get_int(sheets_row[FormattedSoldFieldIndices.N_OF_BEDROOMS])
+    n_of_half_baths = get_int(sheets_row[FormattedSoldFieldIndices.N_OF_HALF_BATHS])
+    n_of_full_baths = get_int(sheets_row[FormattedSoldFieldIndices.N_OF_FULL_BATHS])
+    garage_spaces = get_float(sheets_row[FormattedSoldFieldIndices.GARAGE_SPACES])
+
+
+    attribs = PhysicalAttributes(
+    total_sq_ft,
+    sheets_row[FormattedSoldFieldIndices.BUILD_YEAR],
+    n_of_rooms,
+    n_of_bedrooms,
+    n_of_half_baths,
+    n_of_full_baths,
+    garage_spaces
+    )
+
+    additional_info = default_additional_information()
+
+
+    orginal_list_price = get_int(sheets_row[FormattedSoldFieldIndices.ORIGINAL_LIST_PRICE])
+    list_price = get_int(sheets_row[FormattedSoldFieldIndices.LIST_PRICE])
+    sold_price = get_int(sheets_row[FormattedSoldFieldIndices.SOLD_PRICE])
+
+
+    return Property(
+    sheets_row[FormattedSoldFieldIndices.LIST_NUMBER],
+    agency_info,
+    orginal_list_price,
+    list_price,
+    sold_price,
+    status_dates,
+    address_info,
+    additional_info,
+    attribs
+    )
+
+
+
+def get_active_from_sheets(sheets_row):
+
+    agency_info = AgencyInfo(
+            sheets_row[FormattedActiveFieldIndices.AGENCY_PHONE],
+            sheets_row[FormattedActiveFieldIndices.LISTING_AGENT]
+    )
+
+    listing_date = get_date(sheets_row[FormattedActiveFieldIndices.LISTING_DATE]);
+
+    sold_date = datetime.strptime("1/1/1970",DEFAULT_DATE_FORMAT)
+    pending_date = datetime.strptime("1/1/1970",DEFAULT_DATE_FORMAT)
+
+    status_change_date = get_date(sheets_row[FormattedActiveFieldIndices.STATUS_CHANGE_DATE]);
+
+    status_dates = StatusDates(listing_date,sold_date,pending_date,None,status_change_date)
+    
+    geo_data = GeolocationData(
+            get_float(sheets_row[FormattedActiveFieldIndices.GEO_LAT]), 
+            get_float(sheets_row[FormattedActiveFieldIndices.GEO_LONG])
+    )
+
+
+    address_info = Address(sheets_row[FormattedActiveFieldIndices.STREET_NUM],
+    sheets_row[FormattedActiveFieldIndices.STREET_DIR],
+    sheets_row[FormattedActiveFieldIndices.STREET_NAME],
+    sheets_row[FormattedActiveFieldIndices.NEIGHBORHOOD],
+    sheets_row[FormattedActiveFieldIndices.STATE],
+    sheets_row[FormattedActiveFieldIndices.COUNTY],
+    sheets_row[FormattedActiveFieldIndices.ZIP_CODE],
+    geo_data
+    )
+
+
+    total_sq_ft = get_int(sheets_row[FormattedActiveFieldIndices.TOTAL_SQ_FT])
+    n_of_rooms = get_int(sheets_row[FormattedActiveFieldIndices.N_OF_ROOMS])
+    n_of_bedrooms = get_int(sheets_row[FormattedActiveFieldIndices.N_OF_BEDROOMS])
+    n_of_half_baths = get_int(sheets_row[FormattedActiveFieldIndices.N_OF_HALF_BATHS])
+    n_of_full_baths = get_int(sheets_row[FormattedActiveFieldIndices.N_OF_FULL_BATHS])
+    garage_spaces = 0.0
+
+
+    attribs = PhysicalAttributes(
+    total_sq_ft,
+    sheets_row[FormattedActiveFieldIndices.BUILD_YEAR],
+    n_of_rooms,
+    n_of_bedrooms,
+    n_of_half_baths,
+    n_of_full_baths,
+    garage_spaces
+    )
+
+    additional_info = default_additional_information()
+
+
+    orginal_list_price = get_int(sheets_row[FormattedActiveFieldIndices.ORIGINAL_LIST_PRICE])
+    list_price = get_int(sheets_row[FormattedActiveFieldIndices.LIST_PRICE])
+
+    sold_price = 0
+
+
+    return Property(
+    sheets_row[FormattedActiveFieldIndices.LIST_NUMBER],
+    agency_info,
+    orginal_list_price,
+    list_price,
+    sold_price,
+    status_dates,
+    address_info,
+    additional_info,
+    attribs
+    )
+
+
+
+
+@dataclass(slots=True)
+class PropertyResult:
+    score : float
+    property: Property
+
+    def __lt__(self, other):
+        return self.score < other.score
+
+@dataclass(slots=True)
+class BestComps:
+    active : Property
+    best_comps : list[PropertyResult]
+    third_quartile_price : float
+
+    def get_arv_avg(self):
+        total = 0
+        prop_number = 0
+        for comp in self.best_comps:
+            try:
+                total += int(comp.property.sold_price)
+                prop_number += 1
+            except ValueError:
+                print(f"Property {comp.property.list_number} has no sold price")
+
+        return total / prop_number
+
+
+    def get_result_array(self):
+
+        comp_arv = self.get_arv_avg()
+        try:
+            sf_arv = int(self.active.attribs.square_footage) * self.third_quartile_price
+        except ValueError:
+            sf_arv = 0
+
+        arv_avg = (0.75 * comp_arv) + (0.25 * sf_arv)
+
+        try:
+            percentage_avg_arv = int(self.active.list_price)/arv_avg
+        except ValueError:
+            percentage_avg_arv = 0
+        except ZeroDivisionError:
+            percentage_avg_arv = 0
+
+
+        try:
+            list_p_sqft = int(self.active.list_price) / int(self.active.attribs.square_footage)
+        except ValueError:
+            list_p_sqft = 0
+        except ZeroDivisionError:
+            list_p_sqft = 0
+
+
+        result_row = [
+        self.active.list_number,
+        self.active.address.geo_data.latitude,
+        self.active.address.geo_data.longitude,
+        self.active.list_price,
+        arv_avg,
+        comp_arv,
+        sf_arv,
+        percentage_avg_arv,
+        self.active.address.neighborhood,
+        self.active.attribs.bedrooms,
+        self.active.attribs.get_bathroom_float(),
+        self.active.attribs.square_footage,
+        list_p_sqft,
+        self.third_quartile_price,
+        ]
+
+        for comp in reversed(self.best_comps):
+            result_row.extend([float(comp.property.sold_price),comp.property.list_number])
+
+        return result_row
+
+
 
 def get_from_sheets_array(sheets_row):
-    agency_info = AgencyInfo(sheets_row[PropertyFieldIndices.AGENCY_NAME],
+    agency_info = AgencyInfo(
     sheets_row[PropertyFieldIndices.AGENCY_PHONE],
     sheets_row[PropertyFieldIndices.LISTING_AGENT])
 
@@ -317,70 +642,3 @@ def get_from_sheets_array(sheets_row):
     address_info,
     additional_info,
     attribs)
-
-
-@dataclass(slots=True)
-class PropertyResult:
-    score : float
-    property: Property
-
-    def __lt__(self, other):
-        return self.score < other.score
-
-@dataclass(slots=True)
-class BestComps:
-    active : Property
-    best_comps : list[PropertyResult]
-    third_quartile_price : float
-
-    def get_arv_avg(self):
-        total = 0
-        prop_number = 0
-        for comp in self.best_comps:
-            try:
-                total += int(comp.property.sold_price)
-                prop_number += 1
-            except ValueError:
-                print(f"Property {comp.property.list_number} has no sold price")
-
-        return total / prop_number
-
-
-    def get_result_array(self):
-
-        comp_arv = self.get_arv_avg()
-        try:
-            sf_arv = int(self.active.attribs.square_footage) * self.third_quartile_price
-        except ValueError:
-            sf_arv = 0
-
-        arv_avg = (0.75 * comp_arv) + (0.25 * sf_arv)
-
-        try:
-            percentage_avg_arv = int(self.active.list_price)/arv_avg
-        except ValueError:
-            percentage_avg_arv = 0
-        except ZeroDivisionError:
-            percentage_avg_arv = 0
-
-
-        result_row = [
-        self.active.list_number,
-        self.active.address.geo_data.latitude,
-        self.active.address.geo_data.longitude,
-        self.active.list_price,
-        arv_avg,
-        comp_arv,
-        sf_arv,
-        percentage_avg_arv,
-        self.active.address.neighborhood,
-        self.active.attribs.bedrooms,
-        self.active.attribs.get_bathroom_float(),
-        self.active.attribs.square_footage,
-        self.third_quartile_price,
-        ]
-
-        for comp in self.best_comps:
-            result_row.extend([comp.property.sold_price,comp.property.list_number])
-
-        return result_row
